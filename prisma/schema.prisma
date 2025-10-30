@@ -1,0 +1,144 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL") // pooled (pgBouncer) for the app
+  directUrl = env("DIRECT_URL") // direct for Prisma CLI/migrations
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+}
+
+model Client {
+  id            String    @id @default(uuid())
+  displayName   String    @map("name")
+  email         String    @unique
+  phone         String?   @db.VarChar(32)
+  isActive      Boolean   @default(true) @map("is_active")
+  deactivatedAt DateTime? @map("deactivated_at")
+  deletedAt     DateTime? @map("deleted_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  // Locale context (optional)
+  timezone String? @map("timezone") @db.VarChar(64)
+  locale   String? @map("locale") @db.VarChar(8)
+
+  bookings Booking[]
+
+  @@index([displayName])
+  @@map("client")
+}
+
+model Provider {
+  id           String  @id @default(uuid())
+  authUserId   String? @unique @map("auth_user_id")
+  displayName  String  @map("display_name")
+  email        String  @unique
+  phone        String? @db.VarChar(32)
+  description  String? @db.Text
+  country      String? @db.VarChar(2)
+  city         String?
+  addressLine1 String? @map("address_line_1")
+  addressLine2 String? @map("address_line_2")
+  postalCode   String? @map("postal_code")
+
+  isVerified    Boolean  @default(false) @map("is_verified")
+  ratingAverage Decimal? @map("rating_average") @db.Decimal(3, 2)
+  ratingCount   Int      @default(0) @map("rating_count")
+
+  stripeAccountId String? @unique @map("stripe_account_id")
+
+  // Capacity for concurrent bookings (MVP)
+  concurrentCapacity Int @default(1) @map("concurrent_capacity")
+
+  isActive      Boolean   @default(true) @map("is_active")
+  deactivatedAt DateTime? @map("deactivated_at")
+  deletedAt     DateTime? @map("deleted_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  timezone String? @map("timezone") @db.VarChar(64)
+  locale   String? @map("locale") @db.VarChar(8)
+
+  services Service[]
+  bookings Booking[]
+
+  @@index([displayName])
+  @@index([city])
+  @@map("provider")
+}
+
+model Service {
+  id         String   @id @default(uuid())
+  providerId String   @map("provider_id")
+  provider   Provider @relation(fields: [providerId], references: [id])
+
+  title           String
+  description     String?
+  priceCents      Int     @map("price_cents")
+  currency        String  @db.VarChar(3)
+  durationMinutes Int     @map("duration_minutes")
+
+  // Optional override for provider capacity
+  concurrentCapacity Int? @map("concurrent_capacity")
+
+  isActive  Boolean   @default(true) @map("is_active")
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  bookings Booking[]
+
+  @@index([providerId])
+  @@index([title])
+  @@map("service")
+}
+
+model Booking {
+  id String @id @default(uuid())
+
+  clientId String @map("client_id")
+  client   Client @relation(fields: [clientId], references: [id])
+
+  providerId String   @map("provider_id")
+  provider   Provider @relation(fields: [providerId], references: [id])
+
+  serviceId String  @map("service_id")
+  service   Service @relation(fields: [serviceId], references: [id])
+
+  status BookingStatus @default(PENDING)
+
+  // Store times as UTC timestamptz for correctness
+  startAt DateTime @map("start_at") @db.Timestamptz(6)
+  endAt   DateTime @map("end_at") @db.Timestamptz(6)
+
+  // Nullable to allow pricing overrides/discounts
+  totalPriceCents Int?   @map("total_price_cents")
+  currency        String @db.VarChar(3)
+
+  cancelledAt DateTime? @map("cancelled_at")
+  completedAt DateTime? @map("completed_at")
+  notes       String?
+
+  // Lifecycle
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  // Timezone snapshot for rendering/analytics
+  timezone        String? @map("timezone") @db.VarChar(64)
+  localOffsetMins Int?    @map("local_offset_mins")
+
+  @@index([providerId, startAt])
+  @@index([clientId, startAt])
+  @@map("booking")
+}
